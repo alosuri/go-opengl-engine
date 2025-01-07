@@ -1,9 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"math"
 	"runtime"
-	"unsafe"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -11,18 +12,29 @@ import (
 )
 
 var (
-	cameraPos   = mgl32.Vec3{0.0, 0.0, 3.0}
+	ScreenWidth  = 1280
+	ScreenHeight = 720
+
+	cameraPos   = mgl32.Vec3{50.0, 10.0, 50.0}
 	cameraFront = mgl32.Vec3{0.0, 0.0, -1.0}
 	cameraUp    = mgl32.Vec3{0.0, 1.0, 0.0}
+	velocity    = mgl32.Vec3{0.0, 0.0, 0.0}
+	gravity     = -9.81
+	jumpSpeed   = 5.0
+	cameraSpeed = 10.0
+	isOnGround  = true
 	deltaTime   = 0.0
 	lastFrame   = 0.0
+
+	lightPos   = mgl32.Vec3{50, 25, 50.0}
+	lightColor = mgl32.Vec3{1.0, 1.0, 1.0}
 
 	firstMouse = true
 	yaw        = -90.0
 	pitch      = 0.0
-	lastX      = 800.0 / 2
-	lastY      = 600.0 / 2
-	fov        = 45
+	lastX      = float64(ScreenWidth / 2)
+	lastY      = float64(ScreenHeight / 2)
+	fov        = 90
 )
 
 func init() {
@@ -42,7 +54,7 @@ func main() {
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 
-	window, err := glfw.CreateWindow(800, 600, "OpenGL Window", nil, nil)
+	window, err := glfw.CreateWindow(ScreenWidth, ScreenHeight, "OpenGL Window", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -55,159 +67,115 @@ func main() {
 	}
 
 	gl.Enable(gl.DEPTH_TEST)
-	shader := newShader("./shader.vs", "./shader.fs")
+	// cubeShader := newShader("./shader.vs", "./shader.fs")
+	lampShader := newShader("./shaders/lightShader.vs", "./shaders/lightShader.fs")
+	terrainShader := newShader("./shaders/terrain.vs", "./shaders/terrain.fs")
 
-	vertices := []float32{
-		-0.5, -0.5, -0.5, 1.0, 0.0, 0.0, 0.0, 0.0, // Red
-		0.5, -0.5, -0.5, 1.0, 0.0, 0.0, 1.0, 0.0, // Red
-		0.5, 0.5, -0.5, 1.0, 0.0, 0.0, 1.0, 1.0, // Red
-		-0.5, 0.5, -0.5, 1.0, 0.0, 0.0, 0.0, 1.0, // Red
+	// vertices := NewModel("./eyeball.obj")
+	model := NewModel("./models/a.obj")
+	terrain := CreateTerrain(0, 10, 0, 100)
+	// character := InitCharacter()
 
-		// Back face
-		-0.5, -0.5, 0.5, 0.0, 1.0, 0.0, 0.0, 0.0, // Green
-		0.5, -0.5, 0.5, 0.0, 1.0, 0.0, 1.0, 0.0, // Green
-		0.5, 0.5, 0.5, 0.0, 1.0, 0.0, 1.0, 1.0, // Green
-		-0.5, 0.5, 0.5, 0.0, 1.0, 0.0, 0.0, 1.0, // Green
+	// Textures
+	// texture := newTexture("./models/texture.png")
+	// texture2 := newTexture("./models/container2_specular.png")
 
-		// Left face
-		-0.5, -0.5, -0.5, 0.0, 0.0, 1.0, 0.0, 1.0, // Blue
-		-0.5, -0.5, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0, // Blue
-		-0.5, 0.5, 0.5, 0.0, 0.0, 1.0, 1.0, 0.0, // Blue
-		-0.5, 0.5, -0.5, 0.0, 0.0, 1.0, 1.0, 1.0, // Blue
+	//// FPS
+	var lastTime float64 = glfw.GetTime()
+	var lastCameraPosition mgl32.Vec3 = cameraPos
+	var nbFrames int = 0
 
-		// Right face
-		0.5, -0.5, -0.5, 1.0, 1.0, 0.0, 0.0, 1.0, // Yellow
-		0.5, -0.5, 0.5, 1.0, 1.0, 0.0, 0.0, 0.0, // Yellow
-		0.5, 0.5, 0.5, 1.0, 1.0, 0.0, 1.0, 0.0, // Yellow
-		0.5, 0.5, -0.5, 1.0, 1.0, 0.0, 1.0, 1.0, // Yellow
+	seed := int64(123)
+	exponent := 1.0
 
-		// Bottom face
-		-0.5, -0.5, -0.5, 0.0, 0.5, 0.5, 0.0, 0.0, // Cyan
-		0.5, -0.5, -0.5, 0.0, 0.5, 0.5, 1.0, 0.0, // Cyan
-		0.5, -0.5, 0.5, 0.0, 0.5, 0.5, 1.0, 1.0, // Cyan
-		-0.5, -0.5, 0.5, 0.0, 0.5, 0.5, 0.0, 1.0, // Cyan
-
-		// Top face
-		-0.5, 0.5, -0.5, 0.5, 0.0, 0.5, 0.0, 1.0, // Magenta
-		0.5, 0.5, -0.5, 0.5, 0.0, 0.5, 1.0, 1.0, // Magenta
-		0.5, 0.5, 0.5, 0.5, 0.0, 0.5, 1.0, 0.0, // Magenta
-		-0.5, 0.5, 0.5, 0.5, 0.0, 0.5, 0.0, 0.0, // Magenta
-	}
-
-	indices := []uint32{
-		0, 1, 2,
-		2, 3, 0,
-
-		// Back face
-		4, 5, 6,
-		6, 7, 4,
-
-		// Left face
-		8, 9, 10,
-		10, 11, 8,
-
-		// Right face
-		12, 13, 14,
-		14, 15, 12,
-
-		// Bottom face
-		16, 17, 18,
-		18, 19, 16,
-
-		// Top face
-		20, 21, 22,
-		22, 23, 20,
-	}
-
-	cubePosition := []mgl32.Vec3{
-		mgl32.Vec3{0.0, -1.0, 0.0},
-		mgl32.Vec3{1.0, -1.0, 0.0},
-		mgl32.Vec3{2.0, -1.0, 0.0},
-		mgl32.Vec3{3.0, -1.0, 0.0},
-		mgl32.Vec3{4.0, -1.0, 0.0},
-		mgl32.Vec3{5.0, -1.0, 0.0},
-		mgl32.Vec3{6.0, -1.0, 0.0},
-		mgl32.Vec3{7.0, -1.0, 0.0},
-		mgl32.Vec3{0.0, -1.0, 1.0},
-		mgl32.Vec3{1.0, -1.0, 1.0},
-		mgl32.Vec3{2.0, -1.0, 1.0},
-		mgl32.Vec3{3.0, -1.0, 1.0},
-		mgl32.Vec3{4.0, -1.0, 1.0},
-		mgl32.Vec3{5.0, -1.0, 1.0},
-		mgl32.Vec3{6.0, -1.0, 1.0},
-		mgl32.Vec3{7.0, -1.0, 1.0},
-		mgl32.Vec3{0.0, -1.0, 2.0},
-		mgl32.Vec3{1.0, -1.0, 2.0},
-		mgl32.Vec3{2.0, -1.0, 2.0},
-		mgl32.Vec3{3.0, -1.0, 2.0},
-		mgl32.Vec3{4.0, -1.0, 2.0},
-		mgl32.Vec3{5.0, -1.0, 2.0},
-		mgl32.Vec3{6.0, -1.0, 2.0},
-		mgl32.Vec3{7.0, -1.0, 2.0},
-	}
-
-	VBOs, VAOs, EBOs := [1]uint32{}, [1]uint32{}, [1]uint32{}
-	gl.GenVertexArrays(1, &VAOs[0])
-	gl.GenBuffers(1, &VBOs[0])
-	gl.GenBuffers(1, &EBOs[0])
-
-	gl.BindVertexArray(VAOs[0])
-	gl.BindBuffer(gl.ARRAY_BUFFER, VBOs[0])
-	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)
-
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBOs[0])
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
-
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, unsafe.Pointer(nil))
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*4, unsafe.Pointer(uintptr(3*4)))
-	gl.EnableVertexAttribArray(1)
-	gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, unsafe.Pointer(uintptr(6*4)))
-	gl.EnableVertexAttribArray(2)
-
-	gl.UseProgram(shader.ID)
-	texture := newTexture("texture.png")
+	ter := NewNoiseMap(seed, exponent)
 
 	for !window.ShouldClose() {
 		currentFrame := glfw.GetTime()
+		nbFrames++
+
+		if currentFrame-lastTime >= 1.0 {
+			fmt.Println("FPS:", nbFrames)
+
+			nbFrames = 0
+			lastTime = currentFrame
+		}
+
 		deltaTime = currentFrame - lastFrame
 		lastFrame = currentFrame
-		processInput(window)
+
+		processInput(window, ter)
+
 		gl.ClearColor(0.2, 0.2, 0.5, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		gl.Disable(gl.CULL_FACE)
+		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 
-		// Drawing
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, texture)
+		// gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 
-		gl.UseProgram(shader.ID)
-		model := mgl32.Ident4()
-		projection := mgl32.Ident4()
-
+		// View/Projection transformation
+		projection := mgl32.Perspective(mgl32.DegToRad(float32(fov)), float32(ScreenWidth)/float32(ScreenHeight), 0.1, 100.0)
 		view := mgl32.LookAtV(cameraPos, cameraPos.Add(cameraFront), cameraUp)
-		projection = mgl32.Perspective(mgl32.DegToRad(float32(fov)), 800.0/600.0, 0.1, 100.0)
+		// diffuseColor := lightColor.Mul(0.5)
+		// ambientColor := diffuseColor.Mul(0.2)
 
-		modelLoc := gl.GetUniformLocation(shader.ID, gl.Str("model\x00"))
-		viewLoc := gl.GetUniformLocation(shader.ID, gl.Str("view\x00"))
-		projLoc := gl.GetUniformLocation(shader.ID, gl.Str("projection\x00"))
+		// Lightning
+		// gl.UseProgram(cubeShader.ID)
+		// cubeShader.setVec3("light.position", cameraPos)
+		// cubeShader.setVec3("light.direction", cameraFront)
+		// cubeShader.setFloat("light.cutOff", mgl32.DegToRad(55.5))
+		// cubeShader.setFloat("light.outerCutOff", mgl32.DegToRad(57.5))
+		// cubeShader.setVec3("viewPos", cameraPos)
 
-		gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
-		gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
-		gl.UniformMatrix4fv(projLoc, 1, false, &projection[0])
+		// // light properties
+		// cubeShader.setVec3("light.ambient", [3]float32{0.5, 0.5, 0.5})
+		// cubeShader.setVec3("light.diffuse", [3]float32{0.8, 0.8, 0.8})
+		// cubeShader.setVec3("light.specular", [3]float32{1.0, 1.0, 1.0})
+		// cubeShader.setFloat("light.constant", 1.0)
+		// cubeShader.setFloat("light.linear", 0.59)
+		// cubeShader.setFloat("light.quadratic", 0.532)
 
-		gl.BindVertexArray(VAOs[0])
-		for i := 0; i < len(cubePosition); i++ {
-			model = mgl32.Translate3D(cubePosition[i][0], cubePosition[i][1], cubePosition[i][2])
+		// // material properties
+		// cubeShader.setFloat("material.shininess", 32.0)
 
-			location := gl.GetUniformLocation(shader.ID, gl.Str("model\x00"))
-			gl.UniformMatrix4fv(location, 1, false, &model[0])
-			gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, nil)
+		// cubeShader.setMat4("projection", projection)
+		// cubeShader.setMat4("view", view)
+
+		// gl.ActiveTexture(gl.TEXTURE0)
+		// gl.BindTexture(gl.TEXTURE_2D, texture)
+
+		// // gl.ActiveTexture(gl.TEXTURE1)
+		// // gl.BindTexture(gl.TEXTURE_2D, texture2)
+
+		// model.Render(*cubeShader, 1, 10, 1, 1)
+
+		// if cameraPos[0]-lastCameraPosition[0] > 25.0 {
+		// 	terrain = CreateTerrain(int(cameraPos[0])-50, 5, 100, 100)
+		// 	lastCameraPosition = cameraPos
+		// }
+		if math.Abs(float64(cameraPos[0]-lastCameraPosition[0])) > 25.0 || math.Abs(float64(cameraPos[2]-lastCameraPosition[2])) > 25.0 {
+			terrain = CreateTerrain(int(cameraPos[0])-50, 10, int(cameraPos[2])-50, 100)
+			lastCameraPosition = cameraPos
 		}
+
+		gl.UseProgram(lampShader.ID)
+		lampShader.setMat4("projection", projection)
+		lampShader.setMat4("view", view)
+		lampShader.setVec3("lightColor", lightColor)
+		model.Render(*lampShader, lightPos, 5)
+
+		gl.UseProgram(terrainShader.ID)
+		terrainShader.setMat4("projection", projection)
+		terrainShader.setMat4("view", view)
+		terrainShader.setVec3("lightPos", lightPos)
+		terrain.RenderTerrain(*terrainShader)
+
+		// gl.UseProgram(lampShader.ID)
+		// lampShader.setMat4("projection", projection)
+		// lampShader.setVec3("lightColor", lightColor)
+		// character.Render(*lampShader, cameraPos)
+
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}
-
-	// Clean up
-	gl.DeleteVertexArrays(1, &VAOs[0])
-	gl.DeleteBuffers(1, &VBOs[0])
 }

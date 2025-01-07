@@ -50,8 +50,8 @@ func scrollCallback(window *glfw.Window, xoffset, yoffset float64) {
 		fov = 1.0
 	}
 
-	if fov > 45.0 {
-		fov = 45.0
+	if fov > 90.0 {
+		fov = 90.0
 	}
 
 }

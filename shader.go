@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/go-gl/gl/v4.6-core/gl"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 type Shader struct {
@@ -90,4 +91,9 @@ func (s *Shader) setVec4(name string, value [4]float32) {
 
 func (s *Shader) setVec3(name string, value [3]float32) {
 	gl.Uniform3f(gl.GetUniformLocation(s.ID, gl.Str(name+"\x00")), value[0], value[1], value[2])
+}
+
+func (s *Shader) setMat4(name string, value mgl32.Mat4) {
+	location := gl.GetUniformLocation(s.ID, gl.Str(name+"\x00")) // Convert the name to a null-terminated C string
+	gl.UniformMatrix4fv(location, 1, false, &value[0])
 }
